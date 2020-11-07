@@ -72,6 +72,7 @@ pub mod parser {
         pub name: Option<String>,
         pub window_properties: Option<WindowProperties>,
         pub nodes: Vec<Node>,
+        pub floating_nodes: Vec<Node>,
     }
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -91,6 +92,15 @@ pub mod parser {
     pub fn find_focused(node: &Node) -> Option<&Node> {
         // dfs
         for node in node.nodes.iter() {
+            if node.focused {
+                return Some(node);
+            } else {
+                if let Some(node) = find_focused(node) {
+                    return Some(node);
+                }
+            }
+        }
+        for node in node.floating_nodes.iter() {
             if node.focused {
                 return Some(node);
             } else {
