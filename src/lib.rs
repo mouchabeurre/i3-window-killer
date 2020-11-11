@@ -136,6 +136,13 @@ pub mod formatter {
         windows_info
     }
 
+    fn truncate(s: &str, max_chars: usize) -> &str {
+        match s.char_indices().nth(max_chars) {
+            None => s,
+            Some((idx, _)) => &s[..idx],
+        }
+    }
+
     pub fn format(node: &Node) -> String {
         let windows_info = get_window_info(node);
         const MAX_LEN: usize = 30;
@@ -149,9 +156,11 @@ pub mod formatter {
             if info.class.len() <= MAX_LEN {
                 prompt.push(info.class.clone());
             } else {
-                let mut class = info.class.clone();
-                class.truncate(MAX_LEN - ELLIPSIS.len());
-                prompt.push(format!("{}{}", class.trim(), ELLIPSIS));
+                prompt.push(format!(
+                    "{}{}",
+                    truncate(info.class.as_str(), MAX_LEN - ELLIPSIS.len()),
+                    ELLIPSIS
+                ));
             }
         }
         if windows_info.len() > 1 {
@@ -161,9 +170,12 @@ pub mod formatter {
                     prompt.push(format!("{}{}", SEPARATOR, info.class));
                 } else {
                     if current_length + SEPARATOR.len() + MIN_LEN + ELLIPSIS.len() <= MAX_LEN {
-                        let mut class = info.class.clone();
-                        class.truncate(MAX_LEN - ELLIPSIS.len());
-                        prompt.push(format!("{}{}{}", SEPARATOR, class, ELLIPSIS));
+                        prompt.push(format!(
+                            "{}{}{}",
+                            SEPARATOR,
+                            truncate(info.class.as_str(), MAX_LEN - ELLIPSIS.len()),
+                            ELLIPSIS
+                        ));
                     } else if current_length + SEPARATOR.len() + ELLIPSIS.len() <= MAX_LEN {
                         prompt.push(format!("{}{}", SEPARATOR, ELLIPSIS));
                     }
@@ -181,7 +193,7 @@ pub mod formatter {
                         "{}{}{}{}",
                         PADDING,
                         PARENS[0],
-                        info.title.clone(),
+                        info.title,
                         PARENS[1]
                     ));
                 } else if MAX_LEN
@@ -191,20 +203,18 @@ pub mod formatter {
                     - ELLIPSIS.len()
                     >= MIN_LEN
                 {
-                    let mut title = info.title.clone();
-                    title.truncate(
-                        MAX_LEN
-                            - current_length
-                            - PADDING.len()
-                            - PARENS.join("").len()
-                            - ELLIPSIS.len(),
-                    );
-                    println!("{}", title);
                     prompt.push(format!(
                         "{}{}{}{}{}",
                         PADDING,
                         PARENS[0],
-                        title.trim(),
+                        truncate(
+                            info.title.as_str(),
+                            MAX_LEN
+                                - current_length
+                                - PADDING.len()
+                                - PARENS.join("").len()
+                                - ELLIPSIS.len()
+                        ),
                         ELLIPSIS,
                         PARENS[1]
                     ));
