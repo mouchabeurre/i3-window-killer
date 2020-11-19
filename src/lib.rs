@@ -77,9 +77,13 @@ pub mod parser {
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct WindowProperties {
+        #[serde(default = "default_window_class")]
         pub class: String,
-        pub instance: String,
         pub title: String,
+    }
+
+    fn default_window_class() -> String {
+        String::from("Unknown")
     }
 
     pub fn parse(tree: String) -> Result<Node, SerdeError> {
@@ -191,10 +195,7 @@ pub mod formatter {
                 {
                     prompt.push(format!(
                         "{}{}{}{}",
-                        PADDING,
-                        PARENS[0],
-                        info.title,
-                        PARENS[1]
+                        PADDING, PARENS[0], info.title, PARENS[1]
                     ));
                 } else if MAX_LEN
                     - current_length
