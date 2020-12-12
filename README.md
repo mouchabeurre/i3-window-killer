@@ -8,7 +8,7 @@ The prompt specifies the titles (and classes) of the node(s) composing the targe
 
 ### Screenshots
 
-Single node prompt exeeding the maximum prompt length:
+Single node prompt exceeding the maximum prompt length:
 
 ![single node prompt capture](screen2.jpg)
 
@@ -39,7 +39,7 @@ bindsym $mod+Shift+a exec --no-startup-id path/to/i3-window-killer
 
 The program can easily be hacked to fit your preferences. Here are the key points to consider:
 
-- change the prompt max/min length, separator string, ellipsis string ([here](src/lib.rs#L152))
+- change the prompt max/min length, separator string, ellipsis string ([here](src/lib.rs#L120-L126))
 - disable prompt auto-select ([here](src/lib.rs#L26))
-- change the prompt stylings ([here](src/lib.rs#L31))
+- change the prompt stylings ([here](src/lib.rs#L28))
 - use a different prompt than `rofi` altogether

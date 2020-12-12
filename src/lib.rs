@@ -19,14 +19,12 @@ pub mod external_command {
 
     pub fn prompt_user(prompt: String) -> bool {
         const COMMAND: &str = "rofi";
-        const PREFIX: &str = "Kill";
-        let full_prompt = format!("{} {} ", PREFIX, prompt);
         let args = [
             "-dmenu",
             "-auto-select",
             "-i",
             "-p",
-            full_prompt.as_str(),
+            prompt.as_str(),
             "-theme-str",
             "mainbox { padding: 490px 800px; }",
         ];
@@ -62,20 +60,18 @@ pub mod external_command {
 }
 
 pub mod parser {
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use serde_json::Error as SerdeError;
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Deserialize, Debug)]
     pub struct Node {
-        pub id: i64,
         pub focused: bool,
-        pub name: Option<String>,
         pub window_properties: Option<WindowProperties>,
         pub nodes: Vec<Node>,
         pub floating_nodes: Vec<Node>,
     }
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Deserialize, Debug)]
     pub struct WindowProperties {
         #[serde(default = "default_window_class")]
         pub class: String,
@@ -119,6 +115,15 @@ pub mod parser {
 
 pub mod formatter {
     use crate::parser::Node;
+    use unicode_segmentation::UnicodeSegmentation;
+
+    const MAX_LEN: usize = 35;
+    const MIN_LEN: usize = 4;
+    const SEPARATOR: &str = ",";
+    const ELLIPSIS: &str = "...";
+    const PARENS: [&str; 2] = ["(", ")"];
+    const SPACE: &str = " ";
+    pub const PREFIX: &str = "Kill";
 
     #[derive(Debug)]
     struct WindowInfo {
@@ -140,88 +145,91 @@ pub mod formatter {
         windows_info
     }
 
-    fn truncate(s: &str, max_chars: usize) -> &str {
-        match s.char_indices().nth(max_chars) {
-            None => s,
-            Some((idx, _)) => &s[..idx],
-        }
+    fn truncate(s: &String, n: usize) -> String {
+        s.graphemes(true).take(n).collect()
+    }
+
+    fn len(s: &String) -> usize {
+        s.graphemes(true).count()
     }
 
     pub fn format(node: &Node) -> String {
+        let _separator_len = len(&SEPARATOR.to_string());
+        let ellipsis_len = len(&ELLIPSIS.to_string());
+        let parens_len = len(&PARENS.concat().to_string());
+        let space_len = len(&SPACE.to_string());
         let windows_info = get_window_info(node);
-        const MAX_LEN: usize = 30;
-        const MIN_LEN: usize = 4;
-        const SEPARATOR: &str = ", ";
-        const ELLIPSIS: &str = "...";
-        let mut prompt: Vec<String> = Vec::new();
-        let mut windows_info_iter = windows_info.iter();
-        let first_window_info = windows_info_iter.next();
-        if let Some(info) = first_window_info {
-            if info.class.len() <= MAX_LEN {
-                prompt.push(info.class.clone());
-            } else {
-                prompt.push(format!(
-                    "{}{}",
-                    truncate(info.class.as_str(), MAX_LEN - ELLIPSIS.len()),
-                    ELLIPSIS
-                ));
-            }
-        }
-        if windows_info.len() > 1 {
-            for info in windows_info_iter {
-                let current_length = prompt.iter().fold(0, |sum, x| sum + x.len());
-                if current_length + SEPARATOR.len() + info.class.len() <= MAX_LEN {
-                    prompt.push(format!("{}{}", SEPARATOR, info.class));
+        let mut prompt: Vec<String> = vec![PREFIX.to_string(), SPACE.to_string()];
+
+        if windows_info.len() == 1 {
+            if let Some(info) = windows_info.iter().next() {
+                let title = &info.title;
+                let class = &info.class;
+                let title_len = len(title);
+                let class_len = len(class);
+                let mut current_len = len(&prompt.concat());
+                if current_len + class_len <= MAX_LEN {
+                    prompt.push(class.clone());
+                    current_len = len(&prompt.concat());
+                    if current_len + space_len + parens_len + title_len <= MAX_LEN {
+                        prompt.push(format!("{}{}{}{}", SPACE, PARENS[0], title.clone(), PARENS[1]));
+                    } else {
+                        let available_len =
+                            MAX_LEN - (current_len + space_len + parens_len + ellipsis_len);
+                        if available_len >= MIN_LEN {
+                            prompt.push(format!(
+                                "{}{}{}{}{}",
+                                SPACE,
+                                PARENS[0],
+                                truncate(title, available_len),
+                                ELLIPSIS,
+                                PARENS[1]
+                            ));
+                        }
+                    }
                 } else {
-                    if current_length + SEPARATOR.len() + MIN_LEN + ELLIPSIS.len() <= MAX_LEN {
-                        prompt.push(format!(
-                            "{}{}{}",
-                            SEPARATOR,
-                            truncate(info.class.as_str(), MAX_LEN - ELLIPSIS.len()),
-                            ELLIPSIS
-                        ));
-                    } else if current_length + SEPARATOR.len() + ELLIPSIS.len() <= MAX_LEN {
-                        prompt.push(format!("{}{}", SEPARATOR, ELLIPSIS));
+                    let available_len = MAX_LEN - (current_len + ellipsis_len);
+                    if available_len >= MIN_LEN {
+                        prompt.push(format!("{}{}", truncate(class, available_len), ELLIPSIS));
+                    } else {
+                        if current_len + ellipsis_len <= MAX_LEN {
+                            prompt.push(ELLIPSIS.to_string());
+                        }
                     }
                 }
             }
         } else {
-            const PARENS: [&str; 2] = ["(", ")"];
-            const PADDING: &str = " ";
-            let current_length = prompt.iter().fold(0, |sum, x| sum + x.len());
-            if let Some(info) = first_window_info {
-                if current_length + PADDING.len() + PARENS.join("").len() + info.title.len()
-                    <= MAX_LEN
-                {
-                    prompt.push(format!(
-                        "{}{}{}{}",
-                        PADDING, PARENS[0], info.title, PARENS[1]
-                    ));
-                } else if MAX_LEN
-                    - current_length
-                    - PADDING.len()
-                    - PARENS.join("").len()
-                    - ELLIPSIS.len()
-                    >= MIN_LEN
-                {
-                    prompt.push(format!(
-                        "{}{}{}{}{}",
-                        PADDING,
-                        PARENS[0],
-                        truncate(
-                            info.title.as_str(),
-                            MAX_LEN
-                                - current_length
-                                - PADDING.len()
-                                - PARENS.join("").len()
-                                - ELLIPSIS.len()
-                        ),
-                        ELLIPSIS,
-                        PARENS[1]
-                    ));
+            for (i, info) in windows_info.iter().enumerate() {
+                let class = &info.class;
+                let class_len = len(class);
+                let current_len = len(&prompt.concat());
+                let separator = if i == 0 { "" } else { SEPARATOR };
+                let space = if i == 0 { "" } else { SPACE };
+                let separator_len = len(&separator.to_string());
+                let space_len = len(&space.to_string());
+                if current_len + separator_len + space_len + class_len <= MAX_LEN {
+                    prompt.push(format!("{}{}{}", separator, space, class));
+                } else {
+                    let available_len =
+                        MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
+                    if available_len <= MIN_LEN {
+                        prompt.push(format!(
+                            "{}{}{}{}",
+                            separator,
+                            space,
+                            truncate(class, available_len),
+                            ELLIPSIS
+                        ));
+                    } else {
+                        if current_len + ellipsis_len <= MAX_LEN {
+                            prompt.push(ELLIPSIS.to_string());
+                        }
+                    }
+                    break;
                 }
             }
         }
-        prompt.join("")
+
+        prompt.concat()
     }
 }
