@@ -1,21 +1,22 @@
+pub mod ipc_call {
+    use i3ipc::{
+        reply::{Command, Node},
+        I3Connection, MessageError,
+    };
+
+    pub fn get_tree(con: &mut I3Connection) -> Result<Node, MessageError> {
+        con.get_tree()
+    }
+
+    pub fn kill(con: &mut I3Connection) -> Result<Command, MessageError> {
+        let command_text = String::from("kill");
+        con.run_command(&command_text)
+    }
+}
+
 pub mod external_command {
     use std::io::Write;
     use std::process::{Command, Stdio};
-
-    pub fn get_tree() -> Result<String, String> {
-        const COMMAND: &str = "i3-msg";
-        let args = ["-t", "get_tree"];
-        let call = Command::new(COMMAND)
-            .args(&args)
-            .output()
-            .expect(format!("Failed to execute command: {} {}", COMMAND, args.join(" ")).as_str());
-        if call.status.success() {
-            if let Ok(tree) = String::from_utf8(call.stdout) {
-                return Ok(tree);
-            }
-        }
-        Err(String::from("Couldn't get i3wm window tree"))
-    }
 
     pub fn prompt_user(prompt: String) -> bool {
         const COMMAND: &str = "rofi";
@@ -26,7 +27,7 @@ pub mod external_command {
             "-p",
             prompt.as_str(),
             "-theme-str",
-            "mainbox { padding: 490px 800px; }",
+            "mainbox { padding: 490px 730px; }",
         ];
         let mut call = Command::new(COMMAND)
             .args(&args)
@@ -48,65 +49,23 @@ pub mod external_command {
         }
         false
     }
-
-    pub fn kill() {
-        const COMMAND: &str = "i3-msg";
-        let args = ["kill"];
-        Command::new(COMMAND)
-            .args(&args)
-            .output()
-            .expect(format!("Failed to execute command: {} {}", COMMAND, args.join(" ")).as_str());
-    }
 }
 
 pub mod parser {
-    use serde::Deserialize;
-    use serde_json::Error as SerdeError;
-
-    #[derive(Deserialize, Debug)]
-    pub struct Node {
-        pub focused: bool,
-        pub window_properties: Option<WindowProperties>,
-        pub nodes: Vec<Node>,
-        pub floating_nodes: Vec<Node>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    pub struct WindowProperties {
-        #[serde(default = "default_window_class")]
-        pub class: String,
-        pub title: String,
-    }
-
-    fn default_window_class() -> String {
-        String::from("Unknown")
-    }
-
-    pub fn parse(tree: String) -> Result<Node, SerdeError> {
-        match serde_json::from_str::<Node>(tree.as_str()) {
-            Ok(parsed) => Ok(parsed),
-            Err(error) => Err(error),
-        }
-    }
+    use i3ipc::reply::Node;
 
     pub fn find_focused(node: &Node) -> Option<&Node> {
-        // dfs
-        for node in node.nodes.iter() {
-            if node.focused {
-                return Some(node);
-            } else {
-                if let Some(node) = find_focused(node) {
-                    return Some(node);
-                }
+        if node.focused {
+            return Some(node);
+        }
+        if let Some(child) = node.nodes.iter().find(|&n| n.id == node.focus[0]) {
+            if let Some(focused) = find_focused(child) {
+                return Some(focused);
             }
         }
-        for node in node.floating_nodes.iter() {
-            if node.focused {
-                return Some(node);
-            } else {
-                if let Some(node) = find_focused(node) {
-                    return Some(node);
-                }
+        if let Some(child) = node.floating_nodes.iter().find(|&n| n.id == node.focus[0]) {
+            if let Some(focused) = find_focused(child) {
+                return Some(focused);
             }
         }
         None
@@ -114,16 +73,16 @@ pub mod parser {
 }
 
 pub mod formatter {
-    use crate::parser::Node;
+    use i3ipc::reply::{Node, WindowProperty};
     use unicode_segmentation::UnicodeSegmentation;
 
-    const MAX_LEN: usize = 35;
+    const MAX_LEN: usize = 50;
     const MIN_LEN: usize = 4;
     const SEPARATOR: &str = ",";
     const ELLIPSIS: &str = "...";
     const PARENS: [&str; 2] = ["(", ")"];
     const SPACE: &str = " ";
-    pub const PREFIX: &str = "Kill";
+    pub const PREFIX: &str = "Close";
 
     #[derive(Debug)]
     struct WindowInfo {
@@ -135,8 +94,14 @@ pub mod formatter {
         let mut windows_info: Vec<WindowInfo> = Vec::new();
         if let Some(window_properties) = &node.window_properties {
             windows_info.push(WindowInfo {
-                class: window_properties.class.clone(),
-                title: window_properties.title.clone(),
+                class: window_properties
+                    .get(&WindowProperty::Class)
+                    .unwrap_or(&String::from("Unknown"))
+                    .clone(),
+                title: window_properties
+                    .get(&WindowProperty::Title)
+                    .unwrap_or(&String::from("Unknown"))
+                    .clone(),
             });
         }
         for node in &node.nodes {
@@ -172,7 +137,13 @@ pub mod formatter {
                     prompt.push(class.clone());
                     current_len = len(&prompt.concat());
                     if current_len + space_len + parens_len + title_len <= MAX_LEN {
-                        prompt.push(format!("{}{}{}{}", SPACE, PARENS[0], title.clone(), PARENS[1]));
+                        prompt.push(format!(
+                            "{}{}{}{}",
+                            SPACE,
+                            PARENS[0],
+                            title.clone(),
+                            PARENS[1]
+                        ));
                     } else {
                         let available_len =
                             MAX_LEN - (current_len + space_len + parens_len + ellipsis_len);
@@ -208,11 +179,40 @@ pub mod formatter {
                 let separator_len = len(&separator.to_string());
                 let space_len = len(&space.to_string());
                 if current_len + separator_len + space_len + class_len <= MAX_LEN {
-                    prompt.push(format!("{}{}{}", separator, space, class));
+                    if i == windows_info.len() - 1
+                        || current_len
+                            + separator_len
+                            + space_len
+                            + class_len
+                            + separator_len
+                            + space_len
+                            + MIN_LEN
+                            + ellipsis_len
+                            <= MAX_LEN
+                    {
+                        prompt.push(format!("{}{}{}", separator, space, class));
+                    } else {
+                        if current_len + separator_len + space_len + class_len + ellipsis_len
+                            <= MAX_LEN
+                        {
+                            prompt.push(ELLIPSIS.to_string());
+                        } else {
+                            let available_len =
+                                MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
+                            prompt.push(format!(
+                                "{}{}{}{}",
+                                separator,
+                                space,
+                                truncate(class, available_len),
+                                ELLIPSIS
+                            ));
+                        }
+                        break;
+                    }
                 } else {
-                    let available_len =
-                        MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
-                    if available_len <= MIN_LEN {
+                    if current_len + separator_len + space_len + MIN_LEN + ellipsis_len <= MAX_LEN {
+                        let available_len =
+                            MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
                         prompt.push(format!(
                             "{}{}{}{}",
                             separator,
@@ -229,7 +229,6 @@ pub mod formatter {
                 }
             }
         }
-
         prompt.concat()
     }
 }

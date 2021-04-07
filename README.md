@@ -39,7 +39,6 @@ bindsym $mod+Shift+a exec --no-startup-id path/to/i3-window-killer
 
 The program can easily be hacked to fit your preferences. Here are the key points to consider:
 
-- change the prompt max/min length, separator string, ellipsis string ([here](src/lib.rs#L120-L126))
-- disable prompt auto-select ([here](src/lib.rs#L26))
-- change the prompt stylings ([here](src/lib.rs#L28))
+- change the prompt max/min length, separator string, ellipsis string ([here](src/lib.rs#L79-L85))
+- change the prompt options ([here](src/lib.rs#L23))
 - use a different prompt than `rofi` altogether
