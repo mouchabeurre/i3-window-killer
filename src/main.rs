@@ -1,10 +1,13 @@
 use i3_window_killer::{external_command::*, formatter::*, ipc_call::*, parser::*};
-use i3ipc::I3Connection;
+use i3ipc::{reply::NodeType, I3Connection};
 
 fn main() {
     let mut connection = I3Connection::connect().expect("failed to connect");
     let tree = get_tree(&mut connection).expect("failed to send command");
     let node = find_focused(&tree).expect("failed to find focused node");
+    if node.nodetype == NodeType::Workspace && node.nodes.len() + node.floating_nodes.len() == 0 {
+        return;
+    }
     let prompt = format(&node);
     if prompt_user(prompt) {
         let outcomes = kill(&mut connection)

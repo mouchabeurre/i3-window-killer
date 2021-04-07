@@ -34,14 +34,14 @@ pub mod external_command {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
-            .expect(format!("Failed to execute command: {} {}", COMMAND, args.join(" ")).as_str());
+            .expect(format!("failed to execute command: {} {}", COMMAND, args.join(" ")).as_str());
         {
-            let stdin = call.stdin.as_mut().expect("Failed to open stdin");
+            let stdin = call.stdin.as_mut().expect("failed to open stdin");
             stdin
                 .write_all("Yes\nNo".as_bytes())
-                .expect("Failed to write to stdin");
+                .expect("failed to write to stdin");
         }
-        let output = call.wait_with_output().expect("Failed to read stdout");
+        let output = call.wait_with_output().expect("failed to read stdout");
         if let Ok(response) = String::from_utf8(output.stdout) {
             if response == "Yes\n" {
                 return true;
