@@ -195,7 +195,13 @@ pub mod formatter {
                         if current_len + separator_len + space_len + class_len + ellipsis_len
                             <= MAX_LEN
                         {
-                            prompt.push(ELLIPSIS.to_string());
+                            prompt.push(format!(
+                                "{}{}{}{}",
+                                separator,
+                                space,
+                                class,
+                                ELLIPSIS.to_string()
+                            ));
                         } else {
                             let available_len =
                                 MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
