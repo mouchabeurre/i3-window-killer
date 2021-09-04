@@ -8,16 +8,14 @@ fn main() {
     if node.nodetype == NodeType::Workspace && node.nodes.len() + node.floating_nodes.len() == 0 {
         return;
     }
-    let prompt = format(&node);
-    if prompt_user(prompt) {
+    let (prompt, styles) = get_prompt_and_styles(&node);
+    if prompt_user(prompt, styles) {
         let outcomes = kill(&mut connection)
-            .expect("failed to send command")
+            .expect("failed to execute command")
             .outcomes;
         for outcome in outcomes {
-            if outcome.success {
-                println!("success");
-            } else {
-                println!("failure");
+            if !outcome.success {
+                println!("command did not succeed");
                 if let Some(e) = outcome.error.as_ref() {
                     println!("{}", e);
                 }

@@ -19,7 +19,7 @@ Multiple nodes prompt:
 ## Requirements
 
 - [i3](https://github.com/i3/i3) window manager
-- [rofi](https://github.com/davatorium/rofi) (merely used as `dmenu` here)
+- [rofi](https://github.com/davatorium/rofi)
 
 ## Build
 
@@ -39,6 +39,5 @@ bindsym $mod+Shift+a exec --no-startup-id path/to/i3-window-killer
 
 The program can easily be hacked to fit your preferences. Here are the key points to consider:
 
-- change the prompt max/min length, separator string, ellipsis string ([here](src/lib.rs#L79-L85))
-- change the prompt options ([here](src/lib.rs#L23))
-- use a different prompt than `rofi` altogether
+- use a specific rofi config file ([fn get_rofi_config_path](src/lib.rs#L21))
+- override rofi options ([fn get_rofi_styles](src/lib.rs#L164))

@@ -9,25 +9,41 @@ pub mod ipc_call {
     }
 
     pub fn kill(con: &mut I3Connection) -> Result<Command, MessageError> {
-        let command_text = String::from("kill");
-        con.run_command(&command_text)
+        con.run_command(&"kill".to_string())
     }
 }
 
 pub mod external_command {
+    use std::env;
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    pub fn prompt_user(prompt: String) -> bool {
+    fn get_rofi_config_path() -> String {
+        if let Some(os_string) = env::var_os("XDG_CONFIG_HOME") {
+            if let Ok(path) = os_string.into_string() {
+                format!("{}/rofi/config-kill.rasi", path)
+            } else {
+                "".to_string()
+            }
+        } else {
+            "".to_string()
+        }
+    }
+
+    pub fn prompt_user(prompt: String, styles: String) -> bool {
         const COMMAND: &str = "rofi";
+        const YESNO: (&str, &str) = ("Yes", "No");
+        let rofi_config_path = get_rofi_config_path();
         let args = [
             "-dmenu",
             "-auto-select",
             "-i",
             "-p",
             prompt.as_str(),
+            "-config",
+            rofi_config_path.as_str(),
             "-theme-str",
-            "mainbox { padding: 490px 730px; }",
+            styles.as_str(),
         ];
         let mut call = Command::new(COMMAND)
             .args(&args)
@@ -38,12 +54,12 @@ pub mod external_command {
         {
             let stdin = call.stdin.as_mut().expect("failed to open stdin");
             stdin
-                .write_all("Yes\nNo".as_bytes())
+                .write_all(format!("{}\n{}", YESNO.0, YESNO.1).as_bytes())
                 .expect("failed to write to stdin");
         }
         let output = call.wait_with_output().expect("failed to read stdout");
         if let Ok(response) = String::from_utf8(output.stdout) {
-            if response == "Yes\n" {
+            if response == format!("{}\n", YESNO.0) {
                 return true;
             }
         }
@@ -74,26 +90,20 @@ pub mod parser {
 
 pub mod formatter {
     use i3ipc::reply::{Node, WindowProperty};
-    use unicode_segmentation::UnicodeSegmentation;
-
-    const MAX_LEN: usize = 50;
-    const MIN_LEN: usize = 4;
-    const SEPARATOR: &str = ",";
-    const ELLIPSIS: &str = "...";
-    const PARENS: [&str; 2] = ["(", ")"];
-    const SPACE: &str = " ";
-    pub const PREFIX: &str = "Close";
+    use ignore::WalkBuilder;
+    use regex::Regex;
 
     #[derive(Debug)]
-    struct WindowInfo {
+    struct NodeInfo {
         class: String,
         title: String,
+        instance: Option<String>,
     }
 
-    fn get_window_info(node: &Node) -> Vec<WindowInfo> {
-        let mut windows_info: Vec<WindowInfo> = Vec::new();
+    fn get_nodes_info(node: &Node) -> Vec<NodeInfo> {
+        let mut nodes_info: Vec<NodeInfo> = Vec::new();
         if let Some(window_properties) = &node.window_properties {
-            windows_info.push(WindowInfo {
+            nodes_info.push(NodeInfo {
                 class: window_properties
                     .get(&WindowProperty::Class)
                     .unwrap_or(&String::from("Unknown"))
@@ -102,139 +112,142 @@ pub mod formatter {
                     .get(&WindowProperty::Title)
                     .unwrap_or(&String::from("Unknown"))
                     .clone(),
+                instance: match window_properties.get(&WindowProperty::Instance) {
+                    Some(instance) => Some(instance.clone()),
+                    None => None,
+                },
             });
         }
         for node in &node.nodes {
-            windows_info.append(get_window_info(&node).as_mut());
+            nodes_info.append(get_nodes_info(&node).as_mut());
         }
-        windows_info
+        for node in &node.floating_nodes {
+            nodes_info.append(get_nodes_info(&node).as_mut());
+        }
+        nodes_info
     }
 
-    fn truncate(s: &String, n: usize) -> String {
-        s.graphemes(true).take(n).collect()
-    }
-
-    fn len(s: &String) -> usize {
-        s.graphemes(true).count()
-    }
-
-    pub fn format(node: &Node) -> String {
-        let _separator_len = len(&SEPARATOR.to_string());
-        let ellipsis_len = len(&ELLIPSIS.to_string());
-        let parens_len = len(&PARENS.concat().to_string());
-        let space_len = len(&SPACE.to_string());
-        let windows_info = get_window_info(node);
-        let mut prompt: Vec<String> = vec![PREFIX.to_string(), SPACE.to_string()];
-
-        if windows_info.len() == 1 {
-            if let Some(info) = windows_info.iter().next() {
-                let title = &info.title;
-                let class = &info.class;
-                let title_len = len(title);
-                let class_len = len(class);
-                let mut current_len = len(&prompt.concat());
-                if current_len + class_len <= MAX_LEN {
-                    prompt.push(class.clone());
-                    current_len = len(&prompt.concat());
-                    if current_len + space_len + parens_len + title_len <= MAX_LEN {
-                        prompt.push(format!(
-                            "{}{}{}{}",
-                            SPACE,
-                            PARENS[0],
-                            title.clone(),
-                            PARENS[1]
-                        ));
-                    } else {
-                        let available_len =
-                            MAX_LEN - (current_len + space_len + parens_len + ellipsis_len);
-                        if available_len >= MIN_LEN {
-                            prompt.push(format!(
-                                "{}{}{}{}{}",
-                                SPACE,
-                                PARENS[0],
-                                truncate(title, available_len),
-                                ELLIPSIS,
-                                PARENS[1]
-                            ));
-                        }
-                    }
-                } else {
-                    let available_len = MAX_LEN - (current_len + ellipsis_len);
-                    if available_len >= MIN_LEN {
-                        prompt.push(format!("{}{}", truncate(class, available_len), ELLIPSIS));
-                    } else {
-                        if current_len + ellipsis_len <= MAX_LEN {
-                            prompt.push(ELLIPSIS.to_string());
-                        }
-                    }
-                }
-            }
-        } else {
-            for (i, info) in windows_info.iter().enumerate() {
-                let class = &info.class;
-                let class_len = len(class);
-                let current_len = len(&prompt.concat());
-                let separator = if i == 0 { "" } else { SEPARATOR };
-                let space = if i == 0 { "" } else { SPACE };
-                let separator_len = len(&separator.to_string());
-                let space_len = len(&space.to_string());
-                if current_len + separator_len + space_len + class_len <= MAX_LEN {
-                    if i == windows_info.len() - 1
-                        || current_len
-                            + separator_len
-                            + space_len
-                            + class_len
-                            + separator_len
-                            + space_len
-                            + MIN_LEN
-                            + ellipsis_len
-                            <= MAX_LEN
-                    {
-                        prompt.push(format!("{}{}{}", separator, space, class));
-                    } else {
-                        if current_len + separator_len + space_len + class_len + ellipsis_len
-                            <= MAX_LEN
-                        {
-                            prompt.push(format!(
-                                "{}{}{}{}",
-                                separator,
-                                space,
-                                class,
-                                ELLIPSIS.to_string()
-                            ));
+    fn get_icon_by_class(class: &String) -> String {
+        let re_desktop = Regex::new(format!(r"(?i:{}).*\.desktop$", class).as_str()).unwrap();
+        let desktop_entries: Vec<String> = WalkBuilder::new("/usr/share/applications")
+            .build()
+            .filter_map(|entry| match entry {
+                Ok(e) => {
+                    if e.path().is_file() {
+                        if let Some(path) = e.path().to_str() {
+                            if re_desktop.is_match(path) {
+                                Some(path.into())
+                            } else {
+                                None
+                            }
                         } else {
-                            let available_len =
-                                MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
-                            prompt.push(format!(
-                                "{}{}{}{}",
-                                separator,
-                                space,
-                                truncate(class, available_len),
-                                ELLIPSIS
-                            ));
+                            None
                         }
-                        break;
-                    }
-                } else {
-                    if current_len + separator_len + space_len + MIN_LEN + ellipsis_len <= MAX_LEN {
-                        let available_len =
-                            MAX_LEN - (current_len + separator_len + space_len + ellipsis_len);
-                        prompt.push(format!(
-                            "{}{}{}{}",
-                            separator,
-                            space,
-                            truncate(class, available_len),
-                            ELLIPSIS
-                        ));
                     } else {
-                        if current_len + ellipsis_len <= MAX_LEN {
-                            prompt.push(ELLIPSIS.to_string());
-                        }
+                        None
                     }
-                    break;
                 }
+                Err(_) => None,
+            })
+            .collect();
+        println!("{:?}", desktop_entries);
+        if desktop_entries.len() > 0 {
+            let re_icon_desktop = Regex::new(r"^Icon=").unwrap();
+            let text = std::fs::read_to_string(&desktop_entries[0]).unwrap();
+            if let Some(icon_line) = text.lines().find(|l| re_icon_desktop.is_match(l)) {
+                let icon_name = icon_line.split("=").collect::<Vec<&str>>()[1];
+                return icon_name.trim().to_string();
             }
         }
-        prompt.concat()
+        class.clone()
+    }
+
+    fn get_rofi_style(node: &Node, nodes_info: Vec<NodeInfo>) -> String {
+        println!("{:?}", nodes_info);
+        let mainbox_element = format!(
+            "
+        mainbox {{
+            margin: {}px calc(100% - {}px) calc(100% - {}px) {}px;
+        }}
+        ",
+            node.rect.1,
+            node.rect.2 + node.rect.0,
+            node.rect.3 + node.rect.1,
+            node.rect.0
+        );
+        let nodes_container_ids: Vec<String> = (0..nodes_info.len())
+            .map(|n| format!("node-{}", n))
+            .collect();
+        let nodes_elements: Vec<String> = nodes_info
+            .iter()
+            .zip(&nodes_container_ids)
+            .map(|(n, id)| {
+                let icon = get_icon_by_class(&n.class);
+                format!(
+                    "
+            {} {{
+                expand: false;
+                spacing: 8;
+                orientation: horizontal;
+                children: [icon-{}, text-container-{}];
+            }}
+            text-container-{} {{
+                expand: false;
+                spacing: 8;
+                orientation: horizontal;
+                children: [textbox-class-{}, textbox-label-{}];
+            }}
+            icon-{} {{
+                background-color: @normal-foreground;
+                expand: false;
+                padding: 2px;
+                border-radius: 2px;
+                filename: \"{}\";
+                vertical-align: 0.5;
+            }}
+            textbox-class-{} {{
+                expand: false;
+                str: \"{}:\";
+                font: \"Hack Bold 10\";
+                vertical-align: 0.5;
+                text-color: @normal-foreground;
+            }}
+            textbox-label-{} {{
+                expand: false;
+                str: \"{}\";
+                font: \"Hack 10\";
+                vertical-align: 0.5;
+                text-color: @normal-foreground;
+            }}
+            ",
+                    &id, &id, &id, &id, &id, &id, &id, &icon, &id, &n.class, &id, &n.title
+                )
+            })
+            .collect();
+        let nodes_parent_element = format!(
+            "
+        nodes {{
+            children: [{}];
+        }}
+        ",
+            &nodes_container_ids.join(",")
+        );
+        format!(
+            "
+        {}
+        {}
+        {}
+        ",
+            mainbox_element,
+            nodes_parent_element,
+            nodes_elements.join("\n")
+        )
+    }
+
+    pub fn get_prompt_and_styles(node: &Node) -> (String, String) {
+        let nodes_info = get_nodes_info(node);
+        let prompt = format!("Close node{}", if nodes_info.len() > 1 { "s" } else { "" });
+        let styles = get_rofi_style(node, nodes_info);
+        (prompt, styles)
     }
 }
