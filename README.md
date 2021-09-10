@@ -1,20 +1,20 @@
-# i3-window-killer: an i3wm node killer
+# i3-window-killer: kill i3wm windows with rofi (and style)
 
 ## Description
 
-This simple program prompts the user for confirmation, using **rofi**, before killing the focused node tree on **i3wm**.
+This program presents the user with a customizable **rofi** confirmation prompt before killing the focused **i3wm** node.
 
-The prompt specifies the titles (and classes) of the node(s) composing the targeted tree to quickly assess that the intended nodes are about to be killed.
+The prompt can be styled via a template file, exposing useful variables such as the windows _X11 titles_, _X11 classes_ or _desktop icon_, and allowing block control with loops and conditionals ([template syntax documentation](https://docs.rs/tinytemplate/1.2.1/tinytemplate/syntax/index.html)). An example can be found in [template.rasi](template.rasi).
 
 ### Screenshots
 
-Single node prompt exceeding the maximum prompt length:
+Prompt when killing a single window (with a template placing the prompt over the focused node):
 
-![single node prompt capture](screen2.jpg)
+![single window prompt capture](capture1.jpg)
 
-Multiple nodes prompt:
+Multiple windows prompt:
 
-![multiple nodes prompt capture](screen1.jpg)
+![multiple windows prompt capture](capture2.jpg)
 
 ## Requirements
 
@@ -23,11 +23,13 @@ Multiple nodes prompt:
 
 ## Build
 
-The program is built using `cargo` (_comes with [rustup](https://www.rust-lang.org/tools/install)_).
+The program is built using `cargo` (comes with [rustup](https://www.rust-lang.org/tools/install)).
 
 To build, run `cargo b --release`. The binary will be under `target/release`.
 
 ## Usage
+
+Options are documented under the `--help` flag.
 
 Use the binary in your i3 config as follows:
 
@@ -37,7 +39,8 @@ bindsym $mod+Shift+a exec --no-startup-id path/to/i3-window-killer
 
 ## Customize
 
-The program can easily be hacked to fit your preferences. Here are the key points to consider:
+The program can be hacked to fit your preferences. Here are the key points to consider:
 
-- use a specific rofi config file ([fn get_rofi_config_path](src/lib.rs#L21))
-- override rofi options ([fn get_rofi_styles](src/lib.rs#L164))
+- change the prompt choices ([fn prompt_user](src/lib.rs#L22))
+- change the rofi subcommand flags ([fn prompt_user](src/lib.rs#L23))
+- change the prompt text ([fn get_prompt_and_styles](src/lib.rs#L382))

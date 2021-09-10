@@ -9,7 +9,8 @@ edition = "2018"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-unicode-segmentation = "1.7.1"
-i3ipc = "0.10.1"
+i3ipc = { version = "0.10.1", features = ["i3-gaps"], path = "/home/beurre/Dev/rust/.cloned/i3ipc-rs" }
 ignore = "0.4.18"
 regex = "1.5.4"
+clap = { version = "2.33.3", default-features = false }
+tinytemplate = "1.2.1"

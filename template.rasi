@@ -1,0 +1,42 @@
+mainbox \{
+    margin: {container.top}px calc(100% - {container.right}px) calc(100% - {container.bottom}px) {container.left}px;
+}
+nodes \{
+    children: [{{ for node in nodes }}node-{@index}{{if @last}}{{else}},{{endif}}{{ endfor }}];
+}
+{{ for node in nodes }}
+node-{@index} \{
+    expand: false;
+    spacing: 8;
+    orientation: horizontal;
+    children: [icon-node-{@index}, text-container-node-{@index}];
+}
+text-container-node-{@index} \{
+    expand: false;
+    spacing: 8;
+    orientation: horizontal;
+    children: [textbox-class-node-{@index}, textbox-label-node-{@index}];
+}
+icon-node-{@index} \{
+    background-color: @normal-foreground;
+    expand: false;
+    padding: 2px;
+    border-radius: 2px;
+    filename: "{node.icon}";
+    vertical-align: 0.5;
+}
+textbox-class-node-{@index} \{
+    expand: false;
+    str: "{node.class}:";
+    font: "Hack Bold 10";
+    vertical-align: 0.5;
+    text-color: @normal-foreground;
+}
+textbox-label-node-{@index} \{
+    expand: false;
+    str: "{node.title}";
+    font: "Hack 10";
+    vertical-align: 0.5;
+    text-color: @normal-foreground;
+}
+{{ endfor }}
