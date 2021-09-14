@@ -246,7 +246,11 @@ pub mod formatter {
                     .is_some(),
             }
         }
-        fn can_workspace_of_node_have_gaps(target: &Node, node: &Node) -> Option<bool> {
+        fn can_workspace_of_node_have_gaps(
+            target: &Node,
+            node: &Node,
+            smart_gaps: SmartGapsOption,
+        ) -> Option<bool> {
             match get_node_workspace(target, node) {
                 Some(workspace) => {
                     match workspace
@@ -256,13 +260,30 @@ pub mod formatter {
                         .find(|&n| n.id == workspace.focus[0])
                     {
                         Some(child) => {
-                            if workspace.nodes.len() + workspace.floating_nodes.len() > 1 {
-                                Some(true)
-                            } else {
-                                Some(
-                                    child.layout != NodeLayout::Stacked
-                                        && child.layout != NodeLayout::Tabbed,
-                                )
+                            let has_single_child =
+                                workspace.nodes.len() + workspace.floating_nodes.len() == 1;
+                            let has_gapless_layout = child.layout == NodeLayout::Stacked
+                                || child.layout == NodeLayout::Tabbed;
+                            match smart_gaps {
+                                SmartGapsOption::Off => Some(false),
+                                SmartGapsOption::On => {
+                                    if has_single_child {
+                                        Some(false)
+                                    } else {
+                                        if has_gapless_layout {
+                                            Some(false)
+                                        } else {
+                                            Some(true)
+                                        }
+                                    }
+                                }
+                                SmartGapsOption::InverseOuter => {
+                                    if has_single_child {
+                                        Some(true)
+                                    } else {
+                                        Some(false)
+                                    }
+                                }
                             }
                         }
                         None => None,
@@ -315,24 +336,8 @@ pub mod formatter {
                     None => None,
                 })
         }
-        let with_gaps = match can_workspace_of_node_have_gaps(target, node) {
-            Some(can_have_gaps) => match global_smart_gaps {
-                SmartGapsOption::Off => false,
-                SmartGapsOption::On => {
-                    if can_have_gaps {
-                        true
-                    } else {
-                        false
-                    }
-                }
-                SmartGapsOption::InverseOuter => {
-                    if can_have_gaps {
-                        false
-                    } else {
-                        true
-                    }
-                }
-            },
+        let with_gaps = match can_workspace_of_node_have_gaps(target, node, global_smart_gaps) {
+            Some(can_have_gaps) => can_have_gaps,
             None => false,
         };
         let node_rect_default = get_node_rect(target, with_gaps, global_outer_gap);

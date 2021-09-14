@@ -1,6 +1,6 @@
 [package]
 name = "i3-window-killer"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["beurre <zidronfirefax@gmail.com>"]
 edition = "2018"
 
@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-i3ipc = { version = "0.10.1", features = ["i3-gaps"], path = "/home/beurre/Dev/rust/.cloned/i3ipc-rs" }
+i3ipc = { version = "0.10.1", features = ["i3-gaps"], git = "https://github.com/mouchabeurre/i3ipc-rs.git", branch = "master" }
 ignore = "0.4.18"
 regex = "1.5.4"
 clap = { version = "2.33.3", default-features = false }
