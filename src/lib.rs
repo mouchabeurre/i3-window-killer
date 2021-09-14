@@ -70,11 +70,19 @@ pub mod parser {
 }
 
 pub mod formatter {
+    use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
     use i3ipc::reply::{Node, NodeLayout, NodeType, WindowProperty};
     use ignore::WalkBuilder;
     use regex::Regex;
     use serde::Serialize;
-    use std::{collections::HashMap, path::PathBuf, str::FromStr};
+    use std::{
+        collections::HashMap,
+        env,
+        fs::{self, OpenOptions},
+        io::Write,
+        path::PathBuf,
+        str::FromStr,
+    };
     use tinytemplate::{format_unescaped, TinyTemplate};
 
     #[derive(Debug)]
@@ -119,49 +127,168 @@ pub mod formatter {
     }
 
     fn get_nodes_info(node: &Node) -> Vec<NodeInfo> {
-        fn get_icon_by_class(class: &String, icon_map: &mut HashMap<String, String>) -> String {
-            if let Some(icon_name) = icon_map.get(class) {
-                icon_name.into()
-            } else {
-                let re_desktop =
-                    Regex::new(format!(r"(?i:{}).*\.desktop$", class).as_str()).unwrap();
-                let desktop_entries: Vec<String> = WalkBuilder::new("/usr/share/applications")
+        fn get_icon_cache() -> Result<PathBuf, String> {
+            let sub_dir = "i3-window-killer";
+            let cache_file = "icons";
+            let default_cache = ".cache";
+            let directory = match env::var_os("XDG_CACHE_HOME") {
+                Some(p_os_str) => match p_os_str.into_string() {
+                    Ok(p_str) => Some(PathBuf::from(p_str).join(sub_dir)),
+                    Err(_) => None,
+                },
+                None => match env::var_os("HOME") {
+                    Some(p_os_str) => match p_os_str.into_string() {
+                        Ok(p_str) => Some(PathBuf::from(p_str).join(default_cache).join(sub_dir)),
+                        Err(_) => None,
+                    },
+                    None => None,
+                },
+            };
+            match directory {
+                Some(path) => {
+                    let cache_file_path = path.join(cache_file);
+                    if path.exists() {
+                        Ok(cache_file_path)
+                    } else {
+                        match fs::create_dir_all(path) {
+                            Ok(_) => Ok(cache_file_path),
+                            Err(_) => Err(format!(
+                                "couldn't create cache directory for {:#?}",
+                                cache_file_path
+                            )),
+                        }
+                    }
+                }
+                None => Err(format!("couldn't determine the user cache directory")),
+            }
+        }
+        fn get_icon_by_class(
+            class: &String,
+            cache_path: &Option<PathBuf>,
+            icon_map: &mut HashMap<String, String>,
+        ) -> String {
+            fn get_icon_by_class_from_cache(
+                class: &String,
+                cache_path: &Option<PathBuf>,
+            ) -> Option<String> {
+                if let Some(path) = cache_path {
+                    match fs::read_to_string(path) {
+                        Ok(text) => text.lines().find_map(|l| {
+                            if l.starts_with(class) {
+                                l.rsplit_once("=").map(|splits| splits.1.into())
+                            } else {
+                                None
+                            }
+                        }),
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            fn get_desktop_file_by_class(class: &String) -> Option<String> {
+                let matcher = SkimMatcherV2::ignore_case(SkimMatcherV2::default());
+                let re_desktop = Regex::new(r".*\.desktop$").unwrap();
+                let name_line_key = "Name=";
+                WalkBuilder::new("/usr/share/applications")
                     .build()
                     .filter_map(|entry| match entry {
                         Ok(e) => {
                             if e.path().is_file() {
                                 if let Some(path) = e.path().to_str() {
                                     if re_desktop.is_match(path) {
-                                        return Some(path.into());
+                                        if let Ok(text) = fs::read_to_string(path) {
+                                            text.lines().find_map(|l| {
+                                                if l.starts_with(name_line_key) {
+                                                    if matcher
+                                                        .fuzzy_match(
+                                                            l,
+                                                            format!("{}{}", name_line_key, class)
+                                                                .as_str(),
+                                                        )
+                                                        .is_some()
+                                                    {
+                                                        Some(path.into())
+                                                    } else {
+                                                        None
+                                                    }
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
                                     }
+                                } else {
+                                    None
                                 }
+                            } else {
+                                None
                             }
-                            return None;
                         }
                         Err(_) => None,
                     })
-                    .collect();
-                let icon_name = match desktop_entries.get(0) {
-                    Some(desktop_entry) => {
-                        let re_desktop_icon = Regex::new(r"^Icon=").unwrap();
-                        let text = std::fs::read_to_string(desktop_entry).unwrap();
-                        match text.lines().find(|l| re_desktop_icon.is_match(l)) {
-                            Some(icon_line) => {
-                                match icon_line.split("=").collect::<Vec<&str>>().get(1) {
-                                    Some(icon_name) => icon_name.trim().to_string(),
-                                    None => class.clone(),
+                    .collect::<Vec<String>>()
+                    .get(0)
+                    .map(|s| s.into())
+            }
+            if let Some(icon_name) = icon_map.get(class) {
+                icon_name.into()
+            } else {
+                let icon_name = match get_icon_by_class_from_cache(class, cache_path) {
+                    Some(icon_name) => icon_name,
+                    None => {
+                        let default_icon_name = class.clone();
+                        let new_icon_name = match get_desktop_file_by_class(class) {
+                            Some(desktop_entry) => {
+                                if let Ok(text) = fs::read_to_string(desktop_entry) {
+                                    let icon_line_key = "Icon=";
+                                    match text.lines().find(|l| l.starts_with(icon_line_key)) {
+                                        Some(icon_line) => {
+                                            match icon_line.split("=").collect::<Vec<&str>>().get(1)
+                                            {
+                                                Some(icon_name) => icon_name.trim().to_string(),
+                                                None => default_icon_name,
+                                            }
+                                        }
+                                        None => default_icon_name,
+                                    }
+                                } else {
+                                    default_icon_name
                                 }
                             }
-                            None => class.clone(),
+                            None => default_icon_name,
+                        };
+                        if let Some(path) = cache_path {
+                            match OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .append(true)
+                                .open(path)
+                            {
+                                Ok(mut file) => {
+                                    if let Err(_) = writeln!(file, "{}={}", class, new_icon_name) {
+                                        eprintln!("couldn't write icon entry to cache");
+                                    }
+                                }
+                                Err(_) => eprintln!("couldn't open cache file to write"),
+                            }
                         }
+                        new_icon_name
                     }
-                    None => class.clone(),
                 };
                 icon_map.insert(class.clone(), icon_name.clone());
                 icon_name
             }
         }
-        fn build_nodes_info(node: &Node, icon_map: &mut HashMap<String, String>) -> Vec<NodeInfo> {
+        fn build_nodes_info(
+            node: &Node,
+            cache_path: &Option<PathBuf>,
+            icon_map: &mut HashMap<String, String>,
+        ) -> Vec<NodeInfo> {
             let mut nodes_info: Vec<NodeInfo> = Vec::new();
             if let Some(window_properties) = &node.window_properties {
                 let class = window_properties
@@ -172,17 +299,26 @@ pub mod formatter {
                     .get(&WindowProperty::Title)
                     .unwrap_or(&String::from("Unknown"))
                     .clone();
-                let icon = get_icon_by_class(&class, icon_map);
+                let icon = get_icon_by_class(&class, cache_path, icon_map);
                 nodes_info.push(NodeInfo { class, title, icon });
             }
             node.nodes
                 .iter()
                 .chain(node.floating_nodes.iter())
-                .for_each(|node| nodes_info.append(build_nodes_info(node, icon_map).as_mut()));
+                .for_each(|node| {
+                    nodes_info.append(build_nodes_info(node, cache_path, icon_map).as_mut())
+                });
             nodes_info
         }
         let mut icon_map: HashMap<String, String> = HashMap::new();
-        build_nodes_info(node, &mut icon_map)
+        let cache_path = match get_icon_cache() {
+            Ok(path) => Some(path),
+            Err(e) => {
+                eprintln!("error getting icon cache: {}", e);
+                None
+            }
+        };
+        build_nodes_info(node, &cache_path, &mut icon_map)
     }
 
     fn find_inherited_rect(
