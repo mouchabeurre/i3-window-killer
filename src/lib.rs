@@ -126,6 +126,12 @@ pub mod formatter {
         icon: String,
     }
 
+    fn get_child_iter<'a>(
+        node: &'a Node,
+    ) -> std::iter::Chain<std::slice::Iter<'a, Node>, std::slice::Iter<'a, Node>> {
+        node.nodes.iter().chain(node.floating_nodes.iter())
+    }
+
     fn get_nodes_info(node: &Node) -> Vec<NodeInfo> {
         fn get_icon_cache() -> Result<PathBuf, String> {
             let sub_dir = "i3-window-killer";
@@ -302,12 +308,9 @@ pub mod formatter {
                 let icon = get_icon_by_class(&class, cache_path, icon_map);
                 nodes_info.push(NodeInfo { class, title, icon });
             }
-            node.nodes
-                .iter()
-                .chain(node.floating_nodes.iter())
-                .for_each(|node| {
-                    nodes_info.append(build_nodes_info(node, cache_path, icon_map).as_mut())
-                });
+            get_child_iter(node).for_each(|node| {
+                nodes_info.append(build_nodes_info(node, cache_path, icon_map).as_mut())
+            });
             nodes_info
         }
         let mut icon_map: HashMap<String, String> = HashMap::new();
@@ -327,105 +330,82 @@ pub mod formatter {
         global_smart_gaps: SmartGapsOption,
         global_outer_gap: Option<i32>,
     ) -> NodeRect {
-        fn _get_node_parent<'a>(target: &Node, node: &'a Node) -> Option<&'a Node> {
-            match node
-                .nodes
-                .iter()
-                .chain(node.floating_nodes.iter())
-                .find(|n| n.id == target.id)
-            {
-                Some(_) => Some(node),
-                None => node
-                    .nodes
-                    .iter()
-                    .chain(node.floating_nodes.iter())
-                    .find(|n| _get_node_parent(target, n).is_some()),
-            }
-        }
-        fn get_node_workspace<'a>(target: &Node, node: &'a Node) -> Option<&'a Node> {
-            let workspaces = get_workspaces(node);
-            match get_workspaces(node).iter().find(|w| w.id == target.id) {
-                Some(w) => Some(w),
-                None => workspaces
-                    .iter()
-                    .map(|w| *w)
-                    .find(|w| is_node_descendant(target, w)),
-            }
-        }
-        fn get_workspaces<'a>(node: &'a Node) -> Vec<&'a Node> {
-            if node.nodetype == NodeType::Workspace {
-                vec![node]
+        fn get_node_with_childs(node: &Node) -> Option<&Node> {
+            if node.nodes.len() > 1 {
+                Some(node)
             } else {
-                let mut workspaces: Vec<&'a Node> = Vec::new();
                 node.nodes
                     .iter()
-                    .chain(node.floating_nodes.iter())
-                    .for_each(|w| {
-                        workspaces.append(&mut get_workspaces(w));
-                    });
-                workspaces
-            }
-        }
-        fn is_node_descendant(target: &Node, node: &Node) -> bool {
-            match node
-                .nodes
-                .iter()
-                .chain(node.floating_nodes.iter())
-                .find(|n| n.id == target.id)
-            {
-                Some(_) => true,
-                None => node
-                    .nodes
-                    .iter()
-                    .chain(node.floating_nodes.iter())
-                    .find(|n| is_node_descendant(target, n))
-                    .is_some(),
+                    .find(|n| get_node_with_childs(n).is_some())
             }
         }
         fn can_workspace_of_node_have_gaps(
             target: &Node,
-            node: &Node,
+            node_chain: &Vec<&Node>,
             smart_gaps: SmartGapsOption,
         ) -> Option<bool> {
-            match get_node_workspace(target, node) {
-                Some(workspace) => {
-                    match workspace
-                        .nodes
-                        .iter()
-                        .chain(workspace.floating_nodes.iter())
-                        .find(|&n| n.id == workspace.focus[0])
-                    {
-                        Some(child) => {
-                            let has_single_child =
-                                workspace.nodes.len() + workspace.floating_nodes.len() == 1;
-                            let has_gapless_layout = child.layout == NodeLayout::Stacked
-                                || child.layout == NodeLayout::Tabbed;
-                            match smart_gaps {
-                                SmartGapsOption::Off => Some(false),
-                                SmartGapsOption::On => {
-                                    if has_single_child {
-                                        Some(false)
-                                    } else {
-                                        if has_gapless_layout {
+            if node_chain
+                .iter()
+                .zip(node_chain.iter().skip(1))
+                .any(|(n1, n2)| n1.floating_nodes.iter().any(|n| n.id == n2.id))
+            {
+                // target is in a floating tree
+                Some(false)
+            } else {
+                match node_chain
+                    .iter()
+                    .enumerate()
+                    .find(|(_, n)| n.nodetype == NodeType::Workspace)
+                {
+                    Some((workspace_index, workspace)) => {
+                        if workspace.id == target.id {
+                            match get_node_with_childs(workspace) {
+                                Some(first_container) => match smart_gaps {
+                                    SmartGapsOption::Off => Some(true),
+                                    SmartGapsOption::On | SmartGapsOption::InverseOuter => {
+                                        if first_container.layout == NodeLayout::Stacked
+                                            || first_container.layout == NodeLayout::Tabbed
+                                        {
                                             Some(false)
                                         } else {
                                             Some(true)
                                         }
                                     }
-                                }
-                                SmartGapsOption::InverseOuter => {
-                                    if has_single_child {
-                                        Some(true)
-                                    } else {
-                                        Some(false)
+                                },
+                                None => match smart_gaps {
+                                    SmartGapsOption::Off => Some(true),
+                                    SmartGapsOption::On => Some(false),
+                                    SmartGapsOption::InverseOuter => Some(true),
+                                },
+                            }
+                        } else {
+                            match node_chain
+                                .iter()
+                                .skip(workspace_index)
+                                .find(|n| n.nodes.len() > 1)
+                            {
+                                Some(first_container) => match smart_gaps {
+                                    SmartGapsOption::Off => Some(true),
+                                    SmartGapsOption::On | SmartGapsOption::InverseOuter => {
+                                        if first_container.layout == NodeLayout::Stacked
+                                            || first_container.layout == NodeLayout::Tabbed
+                                        {
+                                            Some(false)
+                                        } else {
+                                            Some(true)
+                                        }
                                     }
-                                }
+                                },
+                                None => match smart_gaps {
+                                    SmartGapsOption::Off => Some(true),
+                                    SmartGapsOption::On => Some(false),
+                                    SmartGapsOption::InverseOuter => Some(true),
+                                },
                             }
                         }
-                        None => None,
                     }
+                    None => None,
                 }
-                None => None,
             }
         }
         fn get_node_rect(node: &Node, with_gaps: bool, global_outer_gap: Option<i32>) -> NodeRect {
@@ -458,37 +438,37 @@ pub mod formatter {
             if node.id == target.id {
                 return Some(vec![node]);
             }
-            node.nodes
-                .iter()
-                .chain(node.floating_nodes.iter())
-                .find_map(|n| match get_node_chain(target, n) {
-                    Some(chain) => Some(
-                        vec![node]
-                            .iter()
-                            .chain(chain.iter())
-                            .map(|n| *n)
-                            .collect::<Vec<&'a Node>>(),
-                    ),
-                    None => None,
-                })
+            get_child_iter(node).find_map(|n| match get_node_chain(target, n) {
+                Some(chain) => Some(
+                    vec![node]
+                        .iter()
+                        .chain(chain.iter())
+                        .map(|n| *n)
+                        .collect::<Vec<&'a Node>>(),
+                ),
+                None => None,
+            })
         }
-        let with_gaps = match can_workspace_of_node_have_gaps(target, node, global_smart_gaps) {
-            Some(can_have_gaps) => can_have_gaps,
-            None => false,
-        };
-        let node_rect_default = get_node_rect(target, with_gaps, global_outer_gap);
+        let node_rect_default = get_node_rect(target, false, global_outer_gap);
         match get_node_chain(target, node) {
-            Some(chain) => chain
-                .iter()
-                .rev()
-                .map(|n| get_node_rect(n, with_gaps, global_outer_gap))
-                .reduce(|a, b| NodeRect {
-                    top: a.top.max(b.top),
-                    right: a.right.min(b.right),
-                    bottom: a.bottom.min(b.bottom),
-                    left: a.left.max(b.left),
-                })
-                .unwrap_or(node_rect_default),
+            Some(chain) => {
+                let with_gaps =
+                    match can_workspace_of_node_have_gaps(target, &chain, global_smart_gaps) {
+                        Some(can_have_gaps) => can_have_gaps,
+                        None => false,
+                    };
+                chain
+                    .iter()
+                    .rev()
+                    .map(|n| get_node_rect(n, with_gaps, global_outer_gap))
+                    .reduce(|a, b| NodeRect {
+                        top: a.top.max(b.top),
+                        right: a.right.min(b.right),
+                        bottom: a.bottom.min(b.bottom),
+                        left: a.left.max(b.left),
+                    })
+                    .unwrap_or(node_rect_default)
+            }
             None => node_rect_default,
         }
     }
