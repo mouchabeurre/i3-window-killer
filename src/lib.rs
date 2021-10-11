@@ -179,9 +179,9 @@ pub mod formatter {
             ) -> Option<String> {
                 if let Some(path) = cache_path {
                     match fs::read_to_string(path) {
-                        Ok(text) => text.lines().find_map(|l| {
-                            if l.starts_with(class) {
-                                l.rsplit_once("=").map(|splits| splits.1.into())
+                        Ok(text) => text.lines().find_map(|line| {
+                            if line.starts_with(class) {
+                                line.rsplit_once("=").map(|splits| splits.1.into())
                             } else {
                                 None
                             }
@@ -195,33 +195,31 @@ pub mod formatter {
             fn get_desktop_file_by_class(class: &String) -> Option<String> {
                 let matcher = SkimMatcherV2::ignore_case(SkimMatcherV2::default());
                 let re_desktop = Regex::new(r".*\.desktop$").unwrap();
-                let name_line_key = "Name=";
-                WalkBuilder::new("/usr/share/applications")
-                    .build()
-                    .filter_map(|entry| match entry {
-                        Ok(e) => {
-                            if e.path().is_file() {
-                                if let Some(path) = e.path().to_str() {
-                                    if re_desktop.is_match(path) {
-                                        if let Ok(text) = fs::read_to_string(path) {
-                                            text.lines().find_map(|l| {
-                                                if l.starts_with(name_line_key) {
-                                                    if matcher
-                                                        .fuzzy_match(
-                                                            l,
-                                                            format!("{}{}", name_line_key, class)
-                                                                .as_str(),
-                                                        )
-                                                        .is_some()
-                                                    {
-                                                        Some(path.into())
+                let mut matches_desktop: Vec<(String, i64)> =
+                    WalkBuilder::new("/usr/share/applications")
+                        .build()
+                        .filter_map(|entry| match entry {
+                            Ok(entry) => {
+                                if entry.path().is_file() {
+                                    if let Some(path) = entry.path().to_str() {
+                                        if re_desktop.is_match(path) {
+                                            if let Ok(text) = fs::read_to_string(path) {
+                                                text.lines().find_map(|line| {
+                                                    if line.starts_with("Name=") {
+                                                        if let Some(score) = matcher
+                                                            .fuzzy_match(line, class.as_str())
+                                                        {
+                                                            Some((path.into(), score))
+                                                        } else {
+                                                            None
+                                                        }
                                                     } else {
                                                         None
                                                     }
-                                                } else {
-                                                    None
-                                                }
-                                            })
+                                                })
+                                            } else {
+                                                None
+                                            }
                                         } else {
                                             None
                                         }
@@ -231,15 +229,12 @@ pub mod formatter {
                                 } else {
                                     None
                                 }
-                            } else {
-                                None
                             }
-                        }
-                        Err(_) => None,
-                    })
-                    .collect::<Vec<String>>()
-                    .get(0)
-                    .map(|s| s.into())
+                            Err(_) => None,
+                        })
+                        .collect();
+                matches_desktop.sort_by(|a, b| a.1.cmp(&b.1));
+                matches_desktop.get(0).map(|(file, _)| file.into())
             }
             if let Some(icon_name) = icon_map.get(class) {
                 icon_name.into()
@@ -248,25 +243,26 @@ pub mod formatter {
                     Some(icon_name) => icon_name,
                     None => {
                         let default_icon_name = class.clone();
-                        let new_icon_name = match get_desktop_file_by_class(class) {
-                            Some(desktop_entry) => {
-                                if let Ok(text) = fs::read_to_string(desktop_entry) {
-                                    let icon_line_key = "Icon=";
-                                    match text.lines().find(|l| l.starts_with(icon_line_key)) {
-                                        Some(icon_line) => {
-                                            match icon_line.split("=").collect::<Vec<&str>>().get(1)
-                                            {
-                                                Some(icon_name) => icon_name.trim().to_string(),
-                                                None => default_icon_name,
-                                            }
-                                        }
-                                        None => default_icon_name,
+                        let new_icon_name = if let Some(file) = get_desktop_file_by_class(class) {
+                            if let Ok(text) = fs::read_to_string(file) {
+                                if let Some(icon_line) =
+                                    text.lines().find(|line| line.starts_with("Icon="))
+                                {
+                                    if let Some(icon_name) =
+                                        icon_line.split("=").collect::<Vec<&str>>().get(1)
+                                    {
+                                        icon_name.trim().to_string()
+                                    } else {
+                                        default_icon_name
                                     }
                                 } else {
                                     default_icon_name
                                 }
+                            } else {
+                                default_icon_name
                             }
-                            None => default_icon_name,
+                        } else {
+                            default_icon_name
                         };
                         if let Some(path) = cache_path {
                             match OpenOptions::new()

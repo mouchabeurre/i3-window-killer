@@ -1,6 +1,6 @@
 [package]
 name = "i3-window-killer"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["beurre <zidronfirefax@gmail.com>"]
 edition = "2018"
 

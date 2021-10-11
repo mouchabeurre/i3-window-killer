@@ -41,7 +41,7 @@ bindsym $mod+Shift+a exec --no-startup-id path/to/i3-window-killer
 
 You can get started by tinkering with the provided [config](config.rasi) and [template](template.rasi).
 The rofi theme format **.rasi** is documented in `rofi-theme(5)`.
-The generated styles can be dumped with the `-d` flag.
+> Tip: debug the generated styles by dumping them to `stdout` with the `-d` flag.
 
 The program can be further hacked by modifying the source files:
 
@@ -56,6 +56,6 @@ Since I found no easy way to map an **X11 WM_CLASS** to its corresponding icon n
 2. look up the window `class` in the dictionnary (formated `class=icon`)
 3. if it exists, use it, else continue
 4. walk every `.desktop` file under `/usr/share/applications` (TODO add other possible locations / make it a parameter)
-5. look for a fuzzy match of the `class` on the `Name` key ([freedesktop specification](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#recognized-keys))
+5. look for the best fuzzy match of the `class` on the `Name` key ([freedesktop specification](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#recognized-keys))
 6. get the `Icon` value from the matched desktop entry
-7. persist its name to the dictionnary
+7. persist its name to the dictionnary and use it
