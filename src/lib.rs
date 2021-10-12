@@ -69,6 +69,64 @@ pub mod parser {
     }
 }
 
+pub mod utils {
+    use std::{
+        env, fs,
+        path::{Path, PathBuf},
+    };
+
+    pub fn file_exists(path: String) -> Result<(), String> {
+        if Path::new(&path).is_file() {
+            Ok(())
+        } else {
+            Err(format!("{} is not a file", path))
+        }
+    }
+
+    pub fn dir_exists(path: String) -> Result<(), String> {
+        if Path::new(&path).is_dir() {
+            Ok(())
+        } else {
+            Err(format!("{} is not a directory", path))
+        }
+    }
+
+    pub fn create_parent_dir(path: &PathBuf) -> Result<(), std::io::Error> {
+        if !path.exists() {
+            if let Some(parent) = path.parent() {
+                if !parent.exists() {
+                    fs::create_dir_all(parent)
+                } else {
+                    Ok(())
+                }
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn get_default_icon_cache() -> Option<String> {
+        match env::var_os("XDG_CACHE_HOME") {
+            Some(p_os_str) => p_os_str.into_string().ok(),
+            None => match env::var_os("HOME") {
+                Some(p_os_str) => {
+                    if let Ok(p_str) = p_os_str.into_string() {
+                        PathBuf::from(p_str)
+                            .join(".cache")
+                            .to_str()
+                            .map(|s| s.to_owned())
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            },
+        }
+    }
+}
+
 pub mod formatter {
     use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
     use i3ipc::reply::{Node, NodeLayout, NodeType, WindowProperty};
@@ -77,7 +135,6 @@ pub mod formatter {
     use serde::Serialize;
     use std::{
         collections::HashMap,
-        env,
         fs::{self, OpenOptions},
         io::Write,
         path::PathBuf,
@@ -132,42 +189,7 @@ pub mod formatter {
         node.nodes.iter().chain(node.floating_nodes.iter())
     }
 
-    fn get_nodes_info(node: &Node) -> Vec<NodeInfo> {
-        fn get_icon_cache() -> Result<PathBuf, String> {
-            let sub_dir = "i3-window-killer";
-            let cache_file = "icons";
-            let default_cache = ".cache";
-            let directory = match env::var_os("XDG_CACHE_HOME") {
-                Some(p_os_str) => match p_os_str.into_string() {
-                    Ok(p_str) => Some(PathBuf::from(p_str).join(sub_dir)),
-                    Err(_) => None,
-                },
-                None => match env::var_os("HOME") {
-                    Some(p_os_str) => match p_os_str.into_string() {
-                        Ok(p_str) => Some(PathBuf::from(p_str).join(default_cache).join(sub_dir)),
-                        Err(_) => None,
-                    },
-                    None => None,
-                },
-            };
-            match directory {
-                Some(path) => {
-                    let cache_file_path = path.join(cache_file);
-                    if path.exists() {
-                        Ok(cache_file_path)
-                    } else {
-                        match fs::create_dir_all(path) {
-                            Ok(_) => Ok(cache_file_path),
-                            Err(_) => Err(format!(
-                                "couldn't create cache directory for {:#?}",
-                                cache_file_path
-                            )),
-                        }
-                    }
-                }
-                None => Err(format!("couldn't determine the user cache directory")),
-            }
-        }
+    fn get_nodes_info(node: &Node, cache_file_path: Option<PathBuf>) -> Vec<NodeInfo> {
         fn get_icon_by_class(
             class: &String,
             cache_path: &Option<PathBuf>,
@@ -310,14 +332,7 @@ pub mod formatter {
             nodes_info
         }
         let mut icon_map: HashMap<String, String> = HashMap::new();
-        let cache_path = match get_icon_cache() {
-            Ok(path) => Some(path),
-            Err(e) => {
-                eprintln!("error getting icon cache: {}", e);
-                None
-            }
-        };
-        build_nodes_info(node, &cache_path, &mut icon_map)
+        build_nodes_info(node, &cache_file_path, &mut icon_map)
     }
 
     fn find_inherited_rect(
@@ -490,8 +505,9 @@ pub mod formatter {
         template: Option<PathBuf>,
         global_smart_gaps: SmartGapsOption,
         global_outer_gap: Option<i32>,
+        cache_file_path: Option<PathBuf>,
     ) -> (String, Option<String>) {
-        let nodes_info = get_nodes_info(node);
+        let nodes_info = get_nodes_info(node, cache_file_path);
         let prompt = format!("Close node{}", if nodes_info.len() > 1 { "s" } else { "" });
         let container_rect = find_inherited_rect(node, tree, global_smart_gaps, global_outer_gap);
         let context = TemplateContext {
