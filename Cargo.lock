@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "i3-window-killer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "fuzzy-matcher",
@@ -103,8 +103,8 @@ dependencies = [
 
 [[package]]
 name = "i3ipc"
-version = "0.10.1"
-source = "git+https://github.com/mouchabeurre/i3ipc-rs.git?branch=master#a4ec022a3fdc7475345249bef711025ec610c9c8"
+version = "0.11.0"
+source = "git+https://github.com/mouchabeurre/i3ipc-rs.git?branch=master#6f1cfc04c5ead924d5189c1ac4d1dd358baa9cd5"
 dependencies = [
  "byteorder",
  "log",
