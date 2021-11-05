@@ -228,10 +228,21 @@ pub mod formatter {
                                             if let Ok(text) = fs::read_to_string(path) {
                                                 text.lines().find_map(|line| {
                                                     if line.starts_with("Name=") {
-                                                        if let Some(score) = matcher
-                                                            .fuzzy_match(line, class.as_str())
+                                                        if let Some(name_value) = line
+                                                            .split("=")
+                                                            .collect::<Vec<&str>>()
+                                                            .get(1)
                                                         {
-                                                            Some((path.into(), score))
+                                                            if let Some(score) = matcher
+                                                                .fuzzy_match(
+                                                                    &name_value,
+                                                                    class.as_str(),
+                                                                )
+                                                            {
+                                                                Some((path.into(), score))
+                                                            } else {
+                                                                None
+                                                            }
                                                         } else {
                                                             None
                                                         }
@@ -255,7 +266,7 @@ pub mod formatter {
                             Err(_) => None,
                         })
                         .collect();
-                matches_desktop.sort_by(|a, b| a.1.cmp(&b.1));
+                matches_desktop.sort_by(|a, b| b.1.cmp(&a.1));
                 matches_desktop.get(0).map(|(file, _)| file.into())
             }
             if let Some(icon_name) = icon_map.get(class) {
