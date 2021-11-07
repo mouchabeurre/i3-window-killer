@@ -27,12 +27,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "byteorder"
-version = "1.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
-
-[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -93,7 +87,7 @@ version = "0.3.2"
 dependencies = [
  "clap",
  "fuzzy-matcher",
- "i3ipc",
+ "i3_ipc",
  "ignore",
  "regex",
  "serde",
@@ -102,14 +96,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "i3ipc"
-version = "0.11.0"
-source = "git+https://github.com/mouchabeurre/i3ipc-rs.git?branch=master#6f1cfc04c5ead924d5189c1ac4d1dd358baa9cd5"
+name = "i3_ipc"
+version = "0.13.0"
+source = "git+https://github.com/mouchabeurre/tokio-i3ipc?rev=4077a49#4077a4914bef9019bb8c54ccbe978caa9d7f6128"
 dependencies = [
- "byteorder",
- "log",
+ "i3ipc-types",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "i3ipc-types"
+version = "0.13.0"
+source = "git+https://github.com/mouchabeurre/tokio-i3ipc?rev=4077a49#4077a4914bef9019bb8c54ccbe978caa9d7f6128"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_repr",
 ]
 
 [[package]]
@@ -242,6 +245,17 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serde_repr"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98d0516900518c29efa217c298fa1f4e6c6ffc85ae29fd7f4ee48f176e1a9ed5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

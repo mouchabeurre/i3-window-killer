@@ -1,6 +1,6 @@
 [package]
 name = "i3-window-killer"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["beurre <zidronfirefax@gmail.com>"]
 edition = "2021"
 
@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-i3ipc = { version = "0.11.0", features = ["i3-gaps", "i3-4-20"], git = "https://github.com/mouchabeurre/i3ipc-rs.git", branch = "master" }
+i3_ipc = { git = "https://github.com/mouchabeurre/tokio-i3ipc", rev = "4077a49" }
 ignore = "0.4.18"
 regex = "1.5.4"
 fuzzy-matcher = "0.3.7"

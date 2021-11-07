@@ -1,25 +1,22 @@
-pub mod ipc_call {
-    use i3ipc::{
-        reply::{Command, Node},
-        I3Connection, MessageError,
-    };
+pub mod cli;
+pub mod utils;
 
-    pub fn get_tree(con: &mut I3Connection) -> Result<Node, MessageError> {
+pub mod external_command {
+    use i3_ipc::{reply, I3Stream};
+    use std::io::{self, Write};
+    use std::process::{Command, Stdio};
+
+    pub fn get_tree(con: &mut I3Stream) -> io::Result<reply::Node> {
         con.get_tree()
     }
 
-    pub fn kill(con: &mut I3Connection) -> Result<Command, MessageError> {
+    pub fn kill(con: &mut I3Stream) -> io::Result<Vec<reply::Success>> {
         con.run_command(&"kill".to_string())
     }
-}
-
-pub mod external_command {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
 
     pub fn prompt_user(prompt: String, config: Option<String>, styles: Option<String>) -> bool {
         const COMMAND: &str = "rofi";
-        const YESNO: (&str, &str) = ("Yes", "No");
+        const CHOICES: (&str, &str) = ("Yes", "No");
         let mut args = vec!["-dmenu", "-auto-select", "-i", "-p", prompt.as_str()];
         if let Some(ref config) = config {
             args.append(vec!["-config", config.as_str().clone()].as_mut());
@@ -36,12 +33,12 @@ pub mod external_command {
         {
             let stdin = call.stdin.as_mut().expect("failed to open stdin");
             stdin
-                .write_all(format!("{}\n{}", YESNO.0, YESNO.1).as_bytes())
+                .write_all(format!("{}\n{}", CHOICES.0, CHOICES.1).as_bytes())
                 .expect("failed to write to stdin");
         }
         let output = call.wait_with_output().expect("failed to read stdout");
         if let Ok(response) = String::from_utf8(output.stdout) {
-            if response == format!("{}\n", YESNO.0) {
+            if response == format!("{}\n", CHOICES.0) {
                 return true;
             }
         }
@@ -49,87 +46,10 @@ pub mod external_command {
     }
 }
 
-pub mod parser {
-    use i3ipc::reply::Node;
-
-    pub fn find_focused(node: &Node) -> Option<&Node> {
-        if node.focused {
-            Some(node)
-        } else {
-            match node
-                .nodes
-                .iter()
-                .chain(node.floating_nodes.iter())
-                .find(|&n| n.id == node.focus[0])
-            {
-                Some(child) => find_focused(child),
-                None => None,
-            }
-        }
-    }
-}
-
-pub mod utils {
-    use std::{
-        env, fs,
-        path::{Path, PathBuf},
-    };
-
-    pub fn file_exists(path: String) -> Result<(), String> {
-        if Path::new(&path).is_file() {
-            Ok(())
-        } else {
-            Err(format!("{} is not a file", path))
-        }
-    }
-
-    pub fn dir_exists(path: String) -> Result<(), String> {
-        if Path::new(&path).is_dir() {
-            Ok(())
-        } else {
-            Err(format!("{} is not a directory", path))
-        }
-    }
-
-    pub fn create_parent_dir(path: &PathBuf) -> Result<(), std::io::Error> {
-        if !path.exists() {
-            if let Some(parent) = path.parent() {
-                if !parent.exists() {
-                    fs::create_dir_all(parent)
-                } else {
-                    Ok(())
-                }
-            } else {
-                Ok(())
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn get_default_icon_cache() -> Option<String> {
-        match env::var_os("XDG_CACHE_HOME") {
-            Some(p_os_str) => p_os_str.into_string().ok(),
-            None => match env::var_os("HOME") {
-                Some(p_os_str) => {
-                    if let Ok(p_str) = p_os_str.into_string() {
-                        PathBuf::from(p_str)
-                            .join(".cache")
-                            .to_str()
-                            .map(|s| s.to_owned())
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            },
-        }
-    }
-}
-
 pub mod formatter {
+    use crate::{cli::SmartGapsOption, utils::i3_tree::get_child_iter};
     use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-    use i3ipc::reply::{Node, NodeLayout, NodeType, WindowProperty};
+    use i3_ipc::reply::{Node, NodeLayout, NodeType};
     use ignore::WalkBuilder;
     use regex::Regex;
     use serde::Serialize;
@@ -138,28 +58,8 @@ pub mod formatter {
         fs::{self, OpenOptions},
         io::Write,
         path::PathBuf,
-        str::FromStr,
     };
     use tinytemplate::{format_unescaped, TinyTemplate};
-
-    #[derive(Debug)]
-    pub enum SmartGapsOption {
-        Off,
-        On,
-        InverseOuter,
-    }
-    impl FromStr for SmartGapsOption {
-        type Err = &'static str;
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            match s {
-                "0" => Ok(SmartGapsOption::Off),
-                "1" => Ok(SmartGapsOption::On),
-                "2" => Ok(SmartGapsOption::InverseOuter),
-                _ => Err("no match"),
-            }
-        }
-    }
 
     #[derive(Debug, Serialize)]
     struct TemplateContext {
@@ -181,12 +81,6 @@ pub mod formatter {
         class: String,
         title: String,
         icon: String,
-    }
-
-    fn get_child_iter<'a>(
-        node: &'a Node,
-    ) -> std::iter::Chain<std::slice::Iter<'a, Node>, std::slice::Iter<'a, Node>> {
-        node.nodes.iter().chain(node.floating_nodes.iter())
     }
 
     fn get_nodes_info(node: &Node, cache_file_path: Option<PathBuf>) -> Vec<NodeInfo> {
@@ -327,11 +221,13 @@ pub mod formatter {
             let mut nodes_info: Vec<NodeInfo> = Vec::new();
             if let Some(window_properties) = &node.window_properties {
                 let class = window_properties
-                    .get(&WindowProperty::Class)
+                    .class
+                    .as_ref()
                     .unwrap_or(&String::from("Unknown"))
                     .clone();
                 let title = window_properties
-                    .get(&WindowProperty::Title)
+                    .title
+                    .as_ref()
                     .unwrap_or(&String::from("Unknown"))
                     .clone();
                 let icon = get_icon_by_class(&class, cache_path, icon_map);
@@ -377,7 +273,7 @@ pub mod formatter {
                 match node_chain
                     .iter()
                     .enumerate()
-                    .find(|(_, n)| n.nodetype == NodeType::Workspace)
+                    .find(|(_, n)| n.node_type == NodeType::Workspace)
                 {
                     Some((workspace_index, workspace)) => {
                         if workspace.id == target.id {
@@ -431,16 +327,16 @@ pub mod formatter {
             }
         }
         fn get_node_rect(node: &Node, with_gaps: bool, global_outer_gap: Option<i32>) -> NodeRect {
-            let mut x = node.rect.0;
-            let mut y = node.rect.1;
-            let mut width = node.rect.2;
-            let mut height = node.rect.3;
+            let mut x = node.rect.x as i32;
+            let mut y = node.rect.y as i32;
+            let mut width = node.rect.width as i32;
+            let mut height = node.rect.height as i32;
             if with_gaps {
-                if let Some(gaps) = node.gaps {
-                    x += gaps.left;
-                    y += gaps.top;
-                    width -= gaps.left + gaps.right;
-                    height -= gaps.top + gaps.bottom;
+                if let Some(gaps) = &node.gaps {
+                    x += gaps.left as i32;
+                    y += gaps.top as i32;
+                    width -= (gaps.left + gaps.right) as i32;
+                    height -= (gaps.top + gaps.bottom) as i32;
                     if let Some(outer_gap) = global_outer_gap {
                         x += outer_gap;
                         y += outer_gap;
@@ -451,8 +347,8 @@ pub mod formatter {
             }
             NodeRect {
                 top: y,
-                right: width + x,
-                bottom: height + y,
+                right: (width + x),
+                bottom: (height + y),
                 left: x,
             }
         }
