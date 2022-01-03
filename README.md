@@ -18,7 +18,7 @@ Multiple windows prompt:
 
 ## Requirements
 
-- [i3](https://github.com/i3/i3) window manager
+- [i3](https://github.com/i3/i3)
 - [rofi](https://github.com/davatorium/rofi)
 
 ## Build
@@ -29,7 +29,60 @@ To build, run `cargo b --release`. The binary will be under `target/release`.
 
 ## Usage
 
-Options are documented under the `--help` flag.
+Taken from `--help` output:
+```
+USAGE:
+    kill [FLAGS] [OPTIONS]
+
+FLAGS:
+    -d, --dump-styles    
+            Dump rendered styles to stdout
+
+    -h, --help           
+            Prints help information
+
+        --no-cache       
+            Don't read/write cached icons
+
+    -V, --version        
+            Prints version information
+
+
+OPTIONS:
+        --cache-dir <DIR>         
+            Custom cache directory to use (sub-directory [i3-window-killer] will still be created).
+            If unspecified, $XDG_CACHE_HOME or $HOME/.cache will be used [default: /home/user/.cache]
+    -o, --outer-gap <INTEGER>     
+            Global i3-gaps "gaps outer" rule (in pixels)
+            If present in your i3 config, every node inherits the offset but their gaps property does not reflect it, so
+            this hint helps in calculating the effective gaps.
+    -c, --config <FILE>           
+            rofi configuration file (passed as-is to subcommand)
+
+    -t, --template <FILE>         
+            rofi styles template
+            Template engine syntax: https://docs.rs/tinytemplate/1.2.1/tinytemplate/syntax/index.html
+            Interpolated variables:
+                - container // Object of the focused node (access props with { container.prop })
+                    {
+                        top: Integer, // top value of the container rect in pixels
+                        right: Integer, 
+                        bottom: Integer,
+                        left: Integer,
+                    }
+                - nodes // Array of windows within the container node
+                    [
+                        { // Object containing node props
+                            class: String, // window X11 class
+                            title: String, // window X11 title
+                            icon: String, // window desktop icon
+                        }
+                    ]
+    -s, --smart-gaps <INTEGER>    
+            Global i3-gaps "smart_gaps" rule (0: off, 1: on, 2: inverse_outer) [default: 1]
+
+
+```
 
 Use the binary in your i3 config as follows:
 
